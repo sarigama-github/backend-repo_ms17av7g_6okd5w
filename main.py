@@ -1,8 +1,13 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 
-app = FastAPI()
+from database import create_document, get_documents
+from schemas import Announcement, Work
+
+app = FastAPI(title="Komunitas Karya Ilmiah Remaja API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,11 +19,67 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "Backend KIR aktif"}
 
 @app.get("/api/hello")
 def hello():
-    return {"message": "Hello from the backend API!"}
+    return {"message": "Halo dari backend API!"}
+
+# Public feed endpoints
+@app.get("/api/announcements")
+def list_announcements(limit: int = 20):
+    try:
+        items = get_documents("announcement", {}, limit)
+        # Convert ObjectId to string for JSON if present
+        for it in items:
+            if "_id" in it:
+                it["id"] = str(it.pop("_id"))
+        return {"data": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/works")
+def list_works(limit: int = 50, q: Optional[str] = None):
+    try:
+        filt = {}
+        if q:
+            # simple contains filter on title or author using regex
+            import re
+            filt = {"$or": [
+                {"title": {"$regex": re.escape(q), "$options": "i"}},
+                {"author": {"$regex": re.escape(q), "$options": "i"}},
+            ]}
+        items = get_documents("work", filt, limit)
+        for it in items:
+            if "_id" in it:
+                it["id"] = str(it.pop("_id"))
+        return {"data": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Submission models for requests
+class AnnouncementIn(Announcement):
+    pass
+
+class WorkIn(Work):
+    pass
+
+# Create endpoints
+@app.post("/api/announcements")
+def create_announcement(payload: AnnouncementIn):
+    try:
+        new_id = create_document("announcement", payload)
+        return {"id": new_id, "message": "Pengumuman dibuat"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/works")
+def create_work(payload: WorkIn):
+    try:
+        new_id = create_document("work", payload)
+        return {"id": new_id, "message": "Karya berhasil diunggah"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/test")
 def test_database():
